@@ -28,9 +28,9 @@ object GuideContent {
     )
 
     private val pages = listOf(
-        Row("Page 1 - now", "Place name (with the age of the data, e.g. \"Berlin 3h\", once it is older than 90 minutes), and below it e.g. \"16C 60% UV3\": the temperature right now, the chance of rain today and the UV index of the current hour."),
+        Row("Page 1 - now", "Place name (with the age of the data, e.g. \"Berlin 3h\", once it is older than 90 minutes), and below it e.g. \"16C 0.4mm UV3\": the temperature right now, the precipitation of the current hour in millimetres, and the UV index of the current hour. Longer values automatically get a smaller font."),
         Row("Page 2 - graph", "Today's hourly graph, explained in the next section."),
-        Row("Page 3 - today", "Today's weather condition and the day's low/high, e.g. \"Rain\" and \"9/17 C\"."),
+        Row("Page 3 - today", "Today's weather condition, and below it e.g. \"9/17C 60%\": the day's low/high and the chance of rain today."),
     )
 
     private val graph = listOf(
@@ -45,6 +45,7 @@ object GuideContent {
         Row("Weather data", "Open-Meteo.com (CC BY 4.0, https://open-meteo.com) or OpenWeatherMap (https://openweathermap.org) - whichever source you pick under Settings."),
         Row("Place names", "Geocoding by OpenStreetMap Nominatim (data (c) OpenStreetMap contributors, ODbL) or OpenWeatherMap."),
         Row("Not affiliated", "\"UNA\" and \"UNA Watch\" are trademarks of UNA Watch Ltd. This app is an independent project and is not affiliated with or endorsed by UNA Watch Ltd."),
+        Row("Temperature unit", "Celsius or Fahrenheit is a setting of the Forecast watch app: change it in the UNA phone app under the app's settings (\"Use Fahrenheit\"). This app always sends Celsius."),
         Row("What it writes", "Only the single file /Apps/<app ID>/weather.json in the folder of the Forecast watch app - nothing else on the watch."),
     )
 

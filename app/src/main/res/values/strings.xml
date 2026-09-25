@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Forecast Sync</string>
+    <!-- Identifies this app to Nominatim (required by its usage policy). Set the real repository URL before release. -->
+    <string name="user_agent">ForecastSync/0.2.0 (https://github.com/Lhotze/forecast-for-una)</string>
+</resources>

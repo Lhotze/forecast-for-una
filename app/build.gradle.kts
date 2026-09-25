@@ -13,8 +13,8 @@ android {
         applicationId = "dev.forecastsync.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 7
-        versionName = "0.2.0"
+        versionCode = 8
+        versionName = "0.2.1"
     }
 
     // Release signing: keystore.properties (git-ignored) in the project root points to the key.

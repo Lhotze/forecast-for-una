@@ -43,11 +43,11 @@ The **Guide** tab explains every page and symbol on the watch.
 The phone writes a small JSON file (< 2000 bytes) that the watch app parses:
 
 ```json
-{"v":1,"ts":1758480000,"tz":7200,"loc":"Frankfurt","tmax":19.0,"tmin":7.0,"code":61,"pop":60,"uv":5.2,
+{"v":1,"ts":1758480000,"tz":7200,"hs":0,"loc":"Frankfurt","tmax":19.0,"tmin":7.0,"code":61,"pop":60,"uv":5.2,
  "tmax2":17.0,"tmin2":8.0,"code2":3,"t":[/*24 hourly °C*/],"r":[/*24 mm*/],"u":[/*24 UV index*/]}
 ```
 
-`code` uses WMO weather codes, `tz` is the location's UTC offset in seconds, arrays cover hours 0-23 of today.
+`code` uses WMO weather codes, `tz` is the location's UTC offset in seconds, `hs` the first hour of today with real data (OpenWeatherMap cannot deliver the past; the watch draws the temperature line only from there), arrays cover hours 0-23 of today.
 
 ## Building
 

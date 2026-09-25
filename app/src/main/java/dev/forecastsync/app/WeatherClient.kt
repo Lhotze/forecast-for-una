@@ -32,6 +32,8 @@ data class Forecast(
     val hourlyTemp: List<Double> = emptyList(),
     val hourlyRain: List<Double> = emptyList(),
     val hourlyUv: List<Double> = emptyList(),
+    /** First hour of today with real temperature data; earlier hours are placeholders the watch must not draw. */
+    val firstHour: Int = 0,
 ) {
     /** Local hour (0..23) at the location right now. */
     fun currentHour(nowSec: Long = System.currentTimeMillis() / 1000): Int =
@@ -245,6 +247,7 @@ object WeatherClient {
         o.put("v", 1)
         o.put("ts", nowSec)
         o.put("tz", f.tz)
+        o.put("hs", f.firstHour)
         o.put("loc", f.loc)
         o.put("tmax", r1(f.tmax)); o.put("tmin", r1(f.tmin))
         o.put("code", f.code); o.put("pop", min(100, max(0, f.pop))); o.put("uv", r1(f.uv))

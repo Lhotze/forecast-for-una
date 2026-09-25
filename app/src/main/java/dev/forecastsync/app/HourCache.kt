@@ -34,11 +34,13 @@ object HourCache {
         o.put("t", store(t)); o.put("r", store(r)); o.put("u", store(u))
         prefs.hourHistory = o.toString()
 
-        // Hours never seen at all (first run of the day, OpenWeatherMap): earliest known value.
+        // Hours never seen at all (first run of the day, OpenWeatherMap): pad them with the
+        // earliest known value so the arrays stay complete, and tell the watch where real data starts.
+        val firstIdx = t.indexOfFirst { it != null }.let { if (it < 0) 0 else it }
         val firstT = t.firstOrNull { it != null } ?: 0.0
         var last = firstT
         val tt = t.map { v -> if (v != null) { last = v; v } else last }
-        return f.copy(hourlyTemp = tt, hourlyRain = r.map { it ?: 0.0 }, hourlyUv = u.map { it ?: 0.0 })
+        return f.copy(hourlyTemp = tt, hourlyRain = r.map { it ?: 0.0 }, hourlyUv = u.map { it ?: 0.0 }, firstHour = firstIdx)
     }
 
     private fun load(a: JSONArray?, into: Array<Double?>) {

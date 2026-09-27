@@ -8,30 +8,56 @@ import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import java.text.Normalizer
+import kotlin.math.PI
+import kotlin.math.cos
 import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
-/** Hourly values of today as the API gave them; null = the API had nothing for that hour (past hours of OWM). */
+/** Days of forecast fetched and sent to the watch: today plus this many more. */
+const val DAYS = 3
+
+/** Hours per day. */
+const val HOURS = 24
+
+/** Hourly values of one day as an API gave them; null = nothing for that hour
+ * (only happens for today - past hours OpenWeatherMap does not deliver). */
 class RawHours(
-    val t: Array<Double?> = arrayOfNulls(24),
-    val r: Array<Double?> = arrayOfNulls(24),
-    val u: Array<Double?> = arrayOfNulls(24),
+    val t: Array<Double?> = arrayOfNulls(HOURS),
+    val r: Array<Double?> = arrayOfNulls(HOURS),
+    val u: Array<Double?> = arrayOfNulls(HOURS),
+    val w: Array<Double?> = arrayOfNulls(HOURS), // km/h
 )
 
-/** Everything the watch needs; [hourlyTemp] etc. are filled in by [HourCache.apply] from [raw]. */
+/** One future day's hourly detail - always fully known, no caching needed. */
+class HourlyDay(val temp: List<Double>, val rain: List<Double>, val uv: List<Double>, val wind: List<Double>)
+
+/** What an API call produced, before [HourCache] fills today's gaps. */
+class ForecastRaw(
+    val loc: String,
+    val tz: Int,
+    val dayStart: Long,
+    val tmax: List<Double>, val tmin: List<Double>, val code: List<Int>, val pop: List<Int>, val uvPeak: List<Double>,
+    val day0: RawHours,
+    val futureHourly: List<HourlyDay>, // size = tmax.size - 1, index 0 = tomorrow
+    val source: String,
+)
+
+/** One day's numbers, ready for [WeatherClient.toJson]. */
+data class DayForecast(
+    val tmax: Double, val tmin: Double, val code: Int, val pop: Int, val uvPeak: Double,
+    val temp: List<Double>, val rain: List<Double>, val uv: List<Double>, val wind: List<Double>,
+)
+
+/** Everything the watch needs: today plus up to [DAYS] - 1 more days, so it can
+ * keep advancing on its own for a while with no connection to the phone. */
 data class Forecast(
     val loc: String,
-    val tz: Int,               // UTC offset in seconds at the location, incl. DST
-    val dayStart: Long,        // epoch seconds of local midnight today
-    val tmax: Double, val tmin: Double, val code: Int, val pop: Int, val uv: Double,
-    val tmax2: Double, val tmin2: Double, val code2: Int,
-    val raw: RawHours,
+    val tz: Int,        // UTC offset in seconds at the location, incl. DST
+    val dayStart: Long,  // epoch seconds of local midnight today
+    val days: List<DayForecast>, // index 0 = today
     val source: String,
-    val hourlyTemp: List<Double> = emptyList(),
-    val hourlyRain: List<Double> = emptyList(),
-    val hourlyUv: List<Double> = emptyList(),
     /** First hour of today with real temperature data; earlier hours are placeholders the watch must not draw. */
     val firstHour: Int = 0,
 ) {
@@ -94,42 +120,64 @@ object WeatherClient {
         name.ifEmpty { prefs.locName }
     }
 
+    private fun dayStart(tz: Int): Long =
+        floor((System.currentTimeMillis() / 1000.0 + tz) / 86400.0).toLong() * 86400 - tz
+
+    /** A smooth diurnal curve from a day's low/high, used only where an API gives
+     * no hourly detail for a day (see [oneCall]'s third day). Peaks at 15:00. */
+    private fun diurnal(tmin: Double, tmax: Double): List<Double> =
+        (0 until HOURS).map { h -> tmin + (tmax - tmin) * (0.5 + 0.5 * cos((h - 15) * PI / 12)) }
+
     // ---------------------------------------------------------------- Open-Meteo
 
-    /** Open-Meteo already speaks WMO codes and includes past hours (past_days=1), so today is complete. */
-    suspend fun openMeteo(lat: Double, lon: Double, name: String): Forecast = withContext(Dispatchers.IO) {
-        val url = "https://api.open-meteo.com/v1/forecast?latitude=$lat&longitude=$lon&timezone=auto&past_days=1&forecast_days=2" +
+    /** Open-Meteo already speaks WMO codes and includes past hours (past_days=1),
+     * so today is complete, and its hourly forecast comfortably covers [DAYS]. */
+    suspend fun openMeteo(lat: Double, lon: Double, name: String): ForecastRaw = withContext(Dispatchers.IO) {
+        val url = "https://api.open-meteo.com/v1/forecast?latitude=$lat&longitude=$lon&timezone=auto" +
+            "&past_days=1&forecast_days=$DAYS&windspeed_unit=kmh" +
             "&daily=temperature_2m_max,temperature_2m_min,weather_code,precipitation_probability_max,uv_index_max" +
-            "&hourly=temperature_2m,precipitation,uv_index"
+            "&hourly=temperature_2m,precipitation,uv_index,wind_speed_10m"
         val j = JSONObject(get(url))
         val tz = j.optInt("utc_offset_seconds", 0)
         val daily = j.getJSONObject("daily")
         val hourly = j.getJSONObject("hourly")
 
-        // With past_days=1 index 0 is yesterday, 1 today, 2 tomorrow.
-        fun d(name: String, i: Int) = daily.getJSONArray(name).optDouble(i, 0.0)
-        fun di(name: String, i: Int) = daily.getJSONArray(name).optInt(i, 0)
-        val raw = RawHours()
+        // With past_days=1, daily/hourly index 0 is yesterday, 1 is today, 2 tomorrow, etc.
+        fun d(key: String, i: Int) = daily.getJSONArray(key).optDouble(i, 0.0)
+        fun di(key: String, i: Int) = daily.getJSONArray(key).optInt(i, 0)
+        val tmax = (1..DAYS).map { d("temperature_2m_max", it) }
+        val tmin = (1..DAYS).map { d("temperature_2m_min", it) }
+        val code = (1..DAYS).map { di("weather_code", it) }
+        val pop = (1..DAYS).map { di("precipitation_probability_max", it) }
+        val uvPeak = (1..DAYS).map { d("uv_index_max", it) }
+
         val ht = hourly.getJSONArray("temperature_2m")
         val hr = hourly.getJSONArray("precipitation")
         val hu = hourly.getJSONArray("uv_index")
-        for (h in 0 until 24) {
-            val i = 24 + h
-            if (!ht.isNull(i)) raw.t[h] = ht.getDouble(i)
-            raw.r[h] = if (hr.isNull(i)) 0.0 else hr.getDouble(i)
-            raw.u[h] = if (hu.isNull(i)) 0.0 else hu.getDouble(i)
-        }
-        Forecast(
-            loc = name, tz = tz, dayStart = dayStart(tz),
-            tmax = d("temperature_2m_max", 1), tmin = d("temperature_2m_min", 1), code = di("weather_code", 1),
-            pop = di("precipitation_probability_max", 1), uv = d("uv_index_max", 1),
-            tmax2 = d("temperature_2m_max", 2), tmin2 = d("temperature_2m_min", 2), code2 = di("weather_code", 2),
-            raw = raw, source = "Open-Meteo",
-        )
-    }
+        val hw = hourly.getJSONArray("wind_speed_10m")
 
-    private fun dayStart(tz: Int): Long =
-        floor((System.currentTimeMillis() / 1000.0 + tz) / 86400.0).toLong() * 86400 - tz
+        val day0 = RawHours()
+        for (h in 0 until HOURS) {
+            val i = HOURS + h // skip the "yesterday" block
+            if (!ht.isNull(i)) day0.t[h] = ht.getDouble(i)
+            day0.r[h] = if (hr.isNull(i)) 0.0 else hr.getDouble(i)
+            day0.u[h] = if (hu.isNull(i)) 0.0 else hu.getDouble(i)
+            day0.w[h] = if (hw.isNull(i)) 0.0 else hw.getDouble(i)
+        }
+
+        val future = (1 until DAYS).map { day ->
+            val base = HOURS * (day + 1)
+            HourlyDay(
+                temp = (0 until HOURS).map { ht.optDouble(base + it, 0.0) },
+                rain = (0 until HOURS).map { hr.optDouble(base + it, 0.0) },
+                uv = (0 until HOURS).map { hu.optDouble(base + it, 0.0) },
+                wind = (0 until HOURS).map { hw.optDouble(base + it, 0.0) },
+            )
+        }
+
+        ForecastRaw(loc = name, tz = tz, dayStart = dayStart(tz), tmax = tmax, tmin = tmin, code = code,
+            pop = pop, uvPeak = uvPeak, day0 = day0, futureHourly = future, source = "Open-Meteo")
+    }
 
     // ---------------------------------------------------------------- OpenWeatherMap
 
@@ -155,7 +203,7 @@ object WeatherClient {
     }
 
     /** One Call 3.0 when the key has it, else the free 2.5 forecast. */
-    suspend fun openWeatherMap(key: String, lat: Double, lon: Double, name: String): Forecast = withContext(Dispatchers.IO) {
+    suspend fun openWeatherMap(key: String, lat: Double, lon: Double, name: String): ForecastRaw = withContext(Dispatchers.IO) {
         try {
             oneCall(key, lat, lon, name)
         } catch (e: HttpStatusException) {
@@ -164,49 +212,89 @@ object WeatherClient {
         }
     }
 
-    private fun oneCall(key: String, lat: Double, lon: Double, name: String): Forecast {
+    /** One Call 3.0's hourly forecast only reaches ~48h ahead (today + tomorrow):
+     * day 2 (the day after tomorrow) gets no hourly rain/UV/wind, and its
+     * temperature is a smooth curve from that day's low/high rather than real
+     * hourly readings. Open-Meteo (free, the default source) does not have
+     * this gap. */
+    private fun oneCall(key: String, lat: Double, lon: Double, name: String): ForecastRaw {
         val j = JSONObject(get("$OWM/data/3.0/onecall?lat=$lat&lon=$lon&exclude=minutely,alerts&units=metric&appid=$key"))
         val tz = j.optInt("timezone_offset", 0)
         val ds = dayStart(tz)
 
-        val raw = RawHours()
+        val day0 = RawHours()
+        val day1 = RawHours()
         val hourly = j.getJSONArray("hourly")
         for (i in 0 until hourly.length()) {
             val h = hourly.getJSONObject(i)
             val idx = ((h.getLong("dt") - ds) / 3600).toInt()
-            if (idx in 0..23) {
-                raw.t[idx] = h.getDouble("temp")
-                raw.r[idx] = h.optJSONObject("rain")?.optDouble("1h", 0.0) ?: 0.0
-                raw.u[idx] = h.optDouble("uvi", 0.0)
+            val windKmh = h.optDouble("wind_speed", 0.0) * 3.6
+            when {
+                idx in 0..23 -> {
+                    day0.t[idx] = h.getDouble("temp")
+                    day0.r[idx] = h.optJSONObject("rain")?.optDouble("1h", 0.0) ?: 0.0
+                    day0.u[idx] = h.optDouble("uvi", 0.0)
+                    day0.w[idx] = windKmh
+                }
+                idx in 24..47 -> {
+                    val hh = idx - 24
+                    day1.t[hh] = h.getDouble("temp")
+                    day1.r[hh] = h.optJSONObject("rain")?.optDouble("1h", 0.0) ?: 0.0
+                    day1.u[hh] = h.optDouble("uvi", 0.0)
+                    day1.w[hh] = windKmh
+                }
             }
         }
+
         val daily = j.getJSONArray("daily")
-        val d0 = daily.getJSONObject(0)
-        val d1 = daily.getJSONObject(1)
-        return Forecast(
-            loc = name, tz = tz, dayStart = ds,
-            tmax = d0.getJSONObject("temp").getDouble("max"), tmin = d0.getJSONObject("temp").getDouble("min"),
-            code = wmo(d0.getJSONArray("weather").getJSONObject(0).getInt("id")),
-            pop = (d0.optDouble("pop", 0.0) * 100).roundToInt(), uv = d0.optDouble("uvi", 0.0),
-            tmax2 = d1.getJSONObject("temp").getDouble("max"), tmin2 = d1.getJSONObject("temp").getDouble("min"),
-            code2 = wmo(d1.getJSONArray("weather").getJSONObject(0).getInt("id")),
-            raw = raw, source = "OpenWeatherMap One Call 3.0",
-        )
+        val tmax = ArrayList<Double>(DAYS)
+        val tmin = ArrayList<Double>(DAYS)
+        val code = ArrayList<Int>(DAYS)
+        val pop = ArrayList<Int>(DAYS)
+        val uvPeak = ArrayList<Double>(DAYS)
+        for (d in 0 until DAYS) {
+            val dj = daily.getJSONObject(minOf(d, daily.length() - 1))
+            tmax.add(dj.getJSONObject("temp").getDouble("max"))
+            tmin.add(dj.getJSONObject("temp").getDouble("min"))
+            code.add(wmo(dj.getJSONArray("weather").getJSONObject(0).getInt("id")))
+            pop.add((dj.optDouble("pop", 0.0) * 100).roundToInt())
+            uvPeak.add(dj.optDouble("uvi", 0.0))
+        }
+
+        val future = (1 until DAYS).map { d ->
+            if (d == 1) {
+                HourlyDay(
+                    temp = (0 until HOURS).map { day1.t[it] ?: tmin[1] },
+                    rain = (0 until HOURS).map { day1.r[it] ?: 0.0 },
+                    uv = (0 until HOURS).map { day1.u[it] ?: 0.0 },
+                    wind = (0 until HOURS).map { day1.w[it] ?: 0.0 },
+                )
+            } else {
+                HourlyDay(temp = diurnal(tmin[d], tmax[d]), rain = List(HOURS) { 0.0 },
+                    uv = List(HOURS) { 0.0 }, wind = List(HOURS) { 0.0 })
+            }
+        }
+
+        return ForecastRaw(loc = name, tz = tz, dayStart = ds, tmax = tmax, tmin = tmin, code = code,
+            pop = pop, uvPeak = uvPeak, day0 = day0, futureHourly = future, source = "OpenWeatherMap One Call 3.0")
     }
 
-    /** Free 5-day/3-hour forecast: interpolated to hours, no UV data. */
-    private fun forecast25(key: String, lat: Double, lon: Double, name: String): Forecast {
+    /** Free 5-day/3-hour forecast: interpolated to hours, no UV data, but its
+     * 5-day span covers all of [DAYS] with real (if coarse) data throughout. */
+    private fun forecast25(key: String, lat: Double, lon: Double, name: String): ForecastRaw {
         val j = JSONObject(get("$OWM/data/2.5/forecast?lat=$lat&lon=$lon&units=metric&appid=$key"))
         val tz = j.getJSONObject("city").optInt("timezone", 0)
         val ds = dayStart(tz)
         val list = j.getJSONArray("list")
 
-        class P(val t: Long, val temp: Double, val rain3h: Double, val pop: Double, val id: Int)
+        class P(val t: Long, val temp: Double, val rain3h: Double, val pop: Double, val windKmh: Double, val id: Int)
         val pts = (0 until list.length()).map {
             val e = list.getJSONObject(it)
             P(e.getLong("dt"), e.getJSONObject("main").getDouble("temp"),
                 e.optJSONObject("rain")?.optDouble("3h", 0.0) ?: 0.0,
-                e.optDouble("pop", 0.0), e.getJSONArray("weather").getJSONObject(0).getInt("id"))
+                e.optDouble("pop", 0.0),
+                (e.optJSONObject("wind")?.optDouble("speed", 0.0) ?: 0.0) * 3.6,
+                e.getJSONArray("weather").getJSONObject(0).getInt("id"))
         }
 
         fun tempAt(t: Long): Double? {
@@ -216,26 +304,50 @@ object WeatherClient {
             return a.temp + (b.temp - a.temp) * (t - a.t).toDouble() / (b.t - a.t)
         }
 
-        val raw = RawHours()
-        for (h in 0 until 24) {
-            val t = ds + h * 3600L
-            raw.t[h] = tempAt(t)
-            val slot = pts.firstOrNull { t >= it.t - 3 * 3600 && t < it.t }   // 3h slot ending at it.t
-            raw.r[h] = slot?.let { it.rain3h / 3.0 }
-            raw.u[h] = 0.0
+        val day0 = RawHours()
+        val future = ArrayList<HourlyDay>(DAYS - 1)
+        for (day in 0 until DAYS) {
+            val temp = DoubleArray(HOURS)
+            val rain = DoubleArray(HOURS)
+            val wind = DoubleArray(HOURS)
+            for (h in 0 until HOURS) {
+                val t = ds + (day * HOURS + h) * 3600L
+                val tv = tempAt(t)
+                temp[h] = tv ?: 0.0
+                // 3h slot ending at "it.t" covers [it.t - 3h, it.t).
+                val slot = pts.firstOrNull { t >= it.t - 3 * 3600 && t < it.t }
+                rain[h] = slot?.let { it.rain3h / 3.0 } ?: 0.0
+                wind[h] = slot?.windKmh ?: 0.0
+                if (day == 0) {
+                    day0.t[h] = tv
+                    day0.r[h] = rain[h]
+                    day0.u[h] = 0.0
+                    day0.w[h] = wind[h]
+                }
+            }
+            if (day > 0) future.add(HourlyDay(temp.toList(), rain.toList(), List(HOURS) { 0.0 }, wind.toList()))
         }
 
         fun dayPts(day: Int) = pts.filter { it.t >= ds + day * 86400L && it.t < ds + (day + 1) * 86400L }
-        val today = dayPts(0).ifEmpty { pts.take(1) }
-        val tomorrow = dayPts(1).ifEmpty { today }
         fun rep(l: List<P>) = l.getOrNull(l.size / 2)?.id ?: 800
-        return Forecast(
+
+        val tmax = ArrayList<Double>(DAYS)
+        val tmin = ArrayList<Double>(DAYS)
+        val code = ArrayList<Int>(DAYS)
+        val pop = ArrayList<Int>(DAYS)
+        var prev = dayPts(0).ifEmpty { pts.take(1) }
+        for (day in 0 until DAYS) {
+            val dp = dayPts(day).ifEmpty { prev }
+            tmax.add(dp.maxOf { it.temp }); tmin.add(dp.minOf { it.temp })
+            code.add(wmo(rep(dp))); pop.add(((dp.maxOfOrNull { it.pop } ?: 0.0) * 100).roundToInt())
+            prev = dp
+        }
+
+        return ForecastRaw(
             loc = name.ifEmpty { asciiName(j.getJSONObject("city").optString("name", "")) },
-            tz = tz, dayStart = ds,
-            tmax = today.maxOf { it.temp }, tmin = today.minOf { it.temp }, code = wmo(rep(today)),
-            pop = ((today.maxOfOrNull { it.pop } ?: 0.0) * 100).roundToInt(), uv = 0.0,
-            tmax2 = tomorrow.maxOf { it.temp }, tmin2 = tomorrow.minOf { it.temp }, code2 = wmo(rep(tomorrow)),
-            raw = raw, source = "OpenWeatherMap Forecast 2.5 (Free, ohne UV)",
+            tz = tz, dayStart = ds, tmax = tmax, tmin = tmin, code = code, pop = pop,
+            uvPeak = List(DAYS) { 0.0 }, day0 = day0, futureHourly = future,
+            source = "OpenWeatherMap Forecast 2.5 (Free, ohne UV)",
         )
     }
 
@@ -244,17 +356,22 @@ object WeatherClient {
     fun toJson(f: Forecast, nowSec: Long): String {
         fun r1(v: Double) = (v * 10.0).roundToInt() / 10.0
         val o = JSONObject()
-        o.put("v", 1)
+        o.put("v", 2)
         o.put("ts", nowSec)
         o.put("tz", f.tz)
         o.put("hs", f.firstHour)
         o.put("loc", f.loc)
-        o.put("tmax", r1(f.tmax)); o.put("tmin", r1(f.tmin))
-        o.put("code", f.code); o.put("pop", min(100, max(0, f.pop))); o.put("uv", r1(f.uv))
-        o.put("tmax2", r1(f.tmax2)); o.put("tmin2", r1(f.tmin2)); o.put("code2", f.code2)
-        o.put("t", JSONArray(f.hourlyTemp.map { r1(it) }))
-        o.put("r", JSONArray(f.hourlyRain.map { r1(it) }))
-        o.put("u", JSONArray(f.hourlyUv.map { r1(it) }))
+        o.put("days", f.days.size)
+        o.put("tmax", JSONArray(f.days.map { r1(it.tmax) }))
+        o.put("tmin", JSONArray(f.days.map { r1(it.tmin) }))
+        o.put("code", JSONArray(f.days.map { it.code }))
+        o.put("pop", JSONArray(f.days.map { min(100, max(0, it.pop)) }))
+        o.put("uv", JSONArray(f.days.map { r1(it.uvPeak) }))
+        o.put("t", JSONArray(f.days.flatMap { it.temp }.map { r1(it) }))
+        o.put("r", JSONArray(f.days.flatMap { it.rain }.map { r1(it) }))
+        o.put("u", JSONArray(f.days.flatMap { it.uv }.map { r1(it) }))
+        // Whole km/h: the watch line only needs a peak label, not fractions, and it saves bytes.
+        o.put("w", JSONArray(f.days.flatMap { it.wind }.map { it.roundToInt() }))
         return o.toString()
     }
 }

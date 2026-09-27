@@ -40,14 +40,25 @@ The **Guide** tab explains every page and symbol on the watch.
 
 ## The data file
 
-The phone writes a small JSON file (< 2000 bytes) that the watch app parses:
+The phone writes a small JSON file (< 2000 bytes, schema v2) that the watch app parses:
 
 ```json
-{"v":1,"ts":1758480000,"tz":7200,"hs":0,"loc":"Frankfurt","tmax":19.0,"tmin":7.0,"code":61,"pop":60,"uv":5.2,
- "tmax2":17.0,"tmin2":8.0,"code2":3,"t":[/*24 hourly °C*/],"r":[/*24 mm*/],"u":[/*24 UV index*/]}
+{"v":2,"ts":1758480000,"tz":7200,"hs":0,"loc":"Frankfurt","days":3,
+ "tmax":[19.0,17.0,15.0],"tmin":[7.0,8.0,6.0],"code":[61,3,2],"pop":[60,20,10],"uv":[5.2,3.0,2.0],
+ "t":[/*72 hourly °C, day-major*/],"r":[/*72 mm*/],"u":[/*72 UV index*/],"w":[/*72 wind km/h*/]}
 ```
 
-`code` uses WMO weather codes, `tz` is the location's UTC offset in seconds, `hs` the first hour of today with real data (OpenWeatherMap cannot deliver the past; the watch draws the temperature line only from there), arrays cover hours 0-23 of today.
+`code` uses WMO weather codes. `days` is how many forecast days are present (up to 3); the watch works
+out which one is "today" itself from `ts`/`tz` against its own clock and advances to the next entry at
+local midnight even with no new file - so a watch with no phone connection for a day or more still
+shows the right day, up to `days` days ahead, instead of getting stuck. `tz` is the location's UTC
+offset in seconds. `hs` is the first hour of *today only* with real data (OpenWeatherMap cannot deliver
+the past; the watch draws the temperature line only from there). The hourly arrays are day-major:
+hours 0-23 of day 0, then day 1, then day 2. Wind (`w`) only gets a peak-per-day label on the watch, in
+km/h or mph depending on a setting on the watch itself, not on anything in this file. With
+OpenWeatherMap's paid One Call 3.0, day 2 has no real hourly rain/UV/wind (that API only reaches ~48h
+ahead); the app fills its temperature with a smooth curve from that day's low/high instead of leaving
+it empty. Open-Meteo, the default free source, has no such gap.
 
 ## Building
 

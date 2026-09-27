@@ -37,6 +37,7 @@ object GuideContent {
         Row("Orange line and numbers", "Hourly temperature of today; the numbers mark today's lowest and highest value."),
         Row("Blue bars", "Precipitation per hour. Full height = 5 mm per hour or more."),
         Row("Purple bars", "UV index per hour (next to the blue bars). Full height = UV 11. The purple number is today's peak."),
+        Row("Teal line and number", "Forecast wind speed per hour. The teal number is the peak for that day, in km/h or mph depending on a setting on the watch itself (in the UNA app, open Forecast's settings)."),
         Row("Green stripe", "The current hour. It covers hh:00 to hh:59 of the hour you are in."),
         Row("Thin vertical lines and 0 / 6 / 12 / 18 / 24", "One line per hour; the brighter ones and the numbers give the rough time of day (local time at the forecast location)."),
     )
@@ -46,6 +47,7 @@ object GuideContent {
         Row("Place names", "Geocoding by OpenStreetMap Nominatim (data (c) OpenStreetMap contributors, ODbL) or OpenWeatherMap."),
         Row("Not affiliated", "\"UNA\" and \"UNA Watch\" are trademarks of UNA Watch Ltd. This app is an independent project and is not affiliated with or endorsed by UNA Watch Ltd."),
         Row("Temperature unit", "Celsius or Fahrenheit is a setting of the Forecast watch app: change it in the UNA phone app under the app's settings (\"Use Fahrenheit\"). This app always sends Celsius."),
+        Row("No connection for a while", "The watch keeps up to 3 days of forecast and switches to the next day on its own at local midnight, even with no phone nearby - so it never gets stuck showing a stale \"today\"."),
         Row("What it writes", "Only the single file /Apps/<app ID>/weather.json in the folder of the Forecast watch app - nothing else on the watch."),
     )
 

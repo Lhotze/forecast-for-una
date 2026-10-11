@@ -50,6 +50,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var autoSwitch: MaterialSwitch
     private var devices: List<BluetoothDevice> = emptyList()
     private var syncJob: Job? = null
+    private lateinit var calendarTab: CalendarTab
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -59,14 +60,18 @@ class MainActivity : AppCompatActivity() {
         // Two tabs: settings and a guide to what the watch shows.
         val tabs = findViewById<TabLayout>(R.id.tabs)
         val settingsPage = findViewById<View>(R.id.settingsPage)
+        val calendarPage = findViewById<View>(R.id.calendarPage)
         val guidePage = findViewById<View>(R.id.guidePage)
+        calendarTab = CalendarTab(this, scope)
         GuideContent.build(this, findViewById<LinearLayout>(R.id.guideContent))
-        tabs.addTab(tabs.newTab().setText("Settings"))
+        tabs.addTab(tabs.newTab().setText("Weather"))
+        tabs.addTab(tabs.newTab().setText("Calendar"))
         tabs.addTab(tabs.newTab().setText("Guide"))
         tabs.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
             override fun onTabSelected(tab: TabLayout.Tab) {
                 settingsPage.visibility = if (tab.position == 0) View.VISIBLE else View.GONE
-                guidePage.visibility = if (tab.position == 1) View.VISIBLE else View.GONE
+                calendarPage.visibility = if (tab.position == 1) View.VISIBLE else View.GONE
+                guidePage.visibility = if (tab.position == 2) View.VISIBLE else View.GONE
             }
             override fun onTabUnselected(tab: TabLayout.Tab) {}
             override fun onTabReselected(tab: TabLayout.Tab) {}
@@ -123,6 +128,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        calendarTab.refresh()
         refreshDevices()
         showStatus()
     }
@@ -176,6 +182,7 @@ class MainActivity : AppCompatActivity() {
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         refreshDevices()
+        if (requestCode == CalendarTab.PERMISSION_REQUEST) calendarTab.refresh()
         if (requestCode == 1 && LocationHelper.hasPermission(this)) requestBackgroundLocation()
     }
 

@@ -26,17 +26,37 @@ phone has written; it does no networking itself.
 
 The **Guide** tab explains every page and symbol on the watch.
 
+### Calendar (Agenda glance)
+
+The **Calendar** tab feeds the **Agenda** glance. Allow calendar access, tick the calendars to show (they come from
+Android's own calendar storage, so Google Calendar works without a separate sign-in), check the Agenda's app folder
+(default `49F89FCBC7B9474B`), choose 10 / 20 / 30 minutes and tap **Send calendar now**, then switch on
+**Update automatically**. The watch is the one chosen on the Weather tab. The calendar has its own schedule,
+independent of the weather.
+
 ## Things to know
 
 - Only **one Bluetooth client can write to the watch at a time.** If the official UNA app or another device is holding the
   connection, a run fails and is retried automatically (3 attempts per run, then the next interval).
-- The app writes **exactly one file**, `/Apps/<16-hex app ID>/weather.json`. The path is checked in code; the firmware
+- The app writes **exactly one file per glance**: `/Apps/<16-hex app ID>/weather.json` and
+  `/Apps/<16-hex app ID>/calendar.json`. The path is checked in code; the firmware
   update directory is never touched. Bluetooth file transfer itself has no access control beyond pairing.
 - Android may delay scheduled runs in Doze/battery-saver mode, especially at 10 minutes. WorkManager's own minimum for
   periodic work is 15 minutes, so the app chains one-off jobs instead.
 - The place name is looked up per ~1 km cell and cached. With Open-Meteo it comes from OpenStreetMap
   [Nominatim](https://operations.osmfoundation.org/policies/nominatim/); please respect its usage policy and set
   `user_agent` in `app/src/main/res/values/strings.xml` to your own repository URL when you fork.
+
+## The calendar file
+
+```json
+{"v":1,"ts":1760000000,"tz":7200,"ev":[{"s":1760011800,"e":1760017200,"t":"Team meeting"},
+ {"s":1760047200,"e":1760133600,"a":1,"t":"Holiday"}]}
+```
+
+`s`/`e` are unix seconds, `a:1` marks an all-day appointment (local midnights), `tz` is the phone's UTC offset in
+seconds. Up to 12 appointments, < 2000 bytes, ASCII titles of at most 40 characters. The watch decides on its own
+clock what is running, next or over.
 
 ## The data file
 

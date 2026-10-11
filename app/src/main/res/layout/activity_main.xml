@@ -241,6 +241,8 @@
     </LinearLayout>
     </ScrollView>
 
+    <include layout="@layout/page_calendar" />
+
     <ScrollView
         android:id="@+id/guidePage"
         android:layout_width="match_parent"

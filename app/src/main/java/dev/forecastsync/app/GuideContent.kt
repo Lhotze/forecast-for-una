@@ -51,11 +51,20 @@ object GuideContent {
         Row("What it writes", "Only the single file /Apps/<app ID>/weather.json in the folder of the Forecast watch app - nothing else on the watch."),
     )
 
+    private val agenda = listOf(
+        Row("What it does", "The Calendar tab sends your next appointments to the separate Agenda glance. It reads the calendars on this phone (Google Calendar and any other account synced to it); no Google sign-in is needed here."),
+        Row("Which appointments", "The next 14 days, at most 12, from the calendars you tick. Running appointments are included; declined and cancelled ones are not."),
+        Row("Own schedule", "10, 20 or 30 minutes, independent of the weather. Send calendar now sends at once."),
+        Row("Titles", "The watch font is Latin only: umlauts become ae/oe/ue, accents are dropped, other characters show as ?. Titles are cut at 40 characters."),
+        Row("What it writes", "Only /Apps/<Agenda app ID>/calendar.json."),
+    )
+
     fun build(ctx: Context, into: LinearLayout) {
         into.removeAllViews()
         section(ctx, into, "Pages on the watch", pages)
         section(ctx, into, "Graph legend", graph)
         section(ctx, into, "Weather conditions", conditions)
+        section(ctx, into, "Calendar (Agenda glance)", agenda)
         section(ctx, into, "About", about)
     }
 

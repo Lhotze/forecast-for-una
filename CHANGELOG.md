@@ -1,5 +1,18 @@
 # Forecast Sync for UNA — Changelog
 
+## 0.4.0
+- New **Calendar** tab: sends your appointments to the **Agenda** glance (`calendar.json`).
+  Calendars are chosen in the app and read from Android's own calendar storage (every calendar
+  on the phone, including Google Calendar), so no Google sign-in is needed - only the
+  `READ_CALENDAR` permission.
+- Its own update rate (10 / 20 / 30 minutes) and its own on/off switch, independent of the weather.
+- Next 14 days, at most 12 appointments (file < 2000 bytes). Declined and cancelled appointments
+  are left out; running ones are included. Titles are converted to the watch's Latin font
+  (umlauts become ae/oe/ue, accents dropped) and cut at 40 characters.
+- The first tab is now called **Weather** (was Settings).
+- Weather and calendar share one Bluetooth lock so they never fight over the connection.
+- The write path check now allows `weather.json` and `calendar.json` in `/Apps/<16-hex app ID>/`.
+
 ## 0.3.0
 - Added wind speed to the fetched forecast and the file sent to the watch,
   for the new teal wind graph in the watch app (needs Forecast 1.0.9+).

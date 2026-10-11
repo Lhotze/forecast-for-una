@@ -39,9 +39,9 @@ class FtsClient(private val ctx: Context) {
         const val CMD_DIGEST_STATUS = 0x71
         const val STATUS_OK = 0x01
 
-        /** Never write anywhere else than the app's own data file. */
+        /** Never write anywhere else than a watch app's own data file (the Forecast weather file or the Agenda calendar file). */
         fun isAllowedPath(path: String) =
-            Regex("^/Apps/[0-9A-Fa-f]{16}/weather\\.json$").matches(path)
+            Regex("^/Apps/[0-9A-Fa-f]{16}/(weather|calendar)\\.json$").matches(path)
     }
 
     private var gatt: BluetoothGatt? = null
@@ -157,13 +157,18 @@ class FtsClient(private val ctx: Context) {
         if (!withTimeout(5_000) { writeDef.await() }) throw IOException("Send failed")
     }
 
-    private suspend fun awaitReply(expectedCmd: Int, timeoutMs: Long = 6_000): ByteArray {
-        return withTimeout(timeoutMs) {
-            while (true) {
-                val m = notifications.receive()
-                if ((m[0].toInt() and 0xFF) == expectedCmd) return@withTimeout m
+    /** [what] names the step in the error, so a silent watch can be told apart from a refusing one. */
+    private suspend fun awaitReply(expectedCmd: Int, what: String, timeoutMs: Long = 6_000): ByteArray {
+        try {
+            return withTimeout(timeoutMs) {
+                while (true) {
+                    val m = notifications.receive()
+                    if ((m[0].toInt() and 0xFF) == expectedCmd) return@withTimeout m
+                }
+                @Suppress("UNREACHABLE_CODE") ByteArray(0)
             }
-            @Suppress("UNREACHABLE_CODE") ByteArray(0)
+        } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+            throw IOException("No answer from the watch to $what within ${timeoutMs / 1000} s")
         }
     }
 
@@ -188,7 +193,7 @@ class FtsClient(private val ctx: Context) {
                 .putInt(0).putLong(System.currentTimeMillis() * 1_000_000L).putInt(data.size)
                 .put(p).array()
             writeRaw(head)
-            val first = awaitReply(CMD_WRITE_PACING)
+            val first = awaitReply(CMD_WRITE_PACING, "the write request for $path (does that folder exist on the watch?)")
             if ((first[1].toInt() and 0xFF) != STATUS_OK) {
                 throw IOException("Watch refuses the write (status ${first[1].toInt() and 0xFF}) - does the folder ${path.substringBeforeLast('/')} exist?")
             }
@@ -202,7 +207,7 @@ class FtsClient(private val ctx: Context) {
                     .putInt(off).putInt(n).put(data, off, n).array()
                 writeRaw(msg)
                 off += n
-                val ack = awaitReply(CMD_WRITE_PACING)
+                val ack = awaitReply(CMD_WRITE_PACING, "data at offset ${off - n}")
                 if ((ack[1].toInt() and 0xFF) != STATUS_OK) {
                     throw IOException("Watch rejects data (status ${ack[1].toInt() and 0xFF})")
                 }
@@ -214,7 +219,7 @@ class FtsClient(private val ctx: Context) {
                 drain()
                 val req = le(4 + p.size).put(CMD_DIGEST.toByte()).put(0).putShort(p.size.toShort()).put(p).array()
                 writeRaw(req)
-                val r = awaitReply(CMD_DIGEST_STATUS)
+                val r = awaitReply(CMD_DIGEST_STATUS, "the checksum request")
                 val bb = ByteBuffer.wrap(r).order(ByteOrder.LITTLE_ENDIAN)
                 val size = bb.getInt(4)
                 val crc = bb.getInt(8).toLong() and 0xFFFFFFFFL

@@ -68,4 +68,38 @@ class Prefs(ctx: Context) {
         status = text
         statusTime = System.currentTimeMillis()
     }
+
+    // ---- calendar (Agenda glance) -------------------------------------------------------
+
+    /** Folder name of the Agenda watch app under /Apps (its app ID). */
+    var calFolder: String
+        get() = sp.getString("calFolder", "49F89FCBC7B9474B") ?: "49F89FCBC7B9474B"
+        set(v) = sp.edit().putString("calFolder", v.trim()).apply()
+
+    /** IDs of the calendars to send (Android calendar provider IDs), comma separated. */
+    var calIds: Set<Long>
+        get() = (sp.getString("calIds", "") ?: "").split(',').mapNotNull { it.trim().toLongOrNull() }.toSet()
+        set(v) = sp.edit().putString("calIds", v.joinToString(",")).apply()
+
+    /** Refresh interval of the calendar in minutes: 10, 20 or 30 (independent of the weather). */
+    var calIntervalMin: Int
+        get() = sp.getInt("calIntervalMin", 30)
+        set(v) = sp.edit().putInt("calIntervalMin", v).apply()
+
+    var calAutoSync: Boolean
+        get() = sp.getBoolean("calAutoSync", false)
+        set(v) = sp.edit().putBoolean("calAutoSync", v).apply()
+
+    var calStatus: String
+        get() = sp.getString("calStatus", "not synced yet") ?: ""
+        set(v) = sp.edit().putString("calStatus", v).apply()
+
+    var calStatusTime: Long
+        get() = sp.getLong("calStatusTime", 0L)
+        set(v) = sp.edit().putLong("calStatusTime", v).apply()
+
+    fun saveCalStatus(text: String) {
+        calStatus = text
+        calStatusTime = System.currentTimeMillis()
+    }
 }

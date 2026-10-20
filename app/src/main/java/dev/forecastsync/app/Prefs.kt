@@ -102,4 +102,45 @@ class Prefs(ctx: Context) {
         calStatus = text
         calStatusTime = System.currentTimeMillis()
     }
+
+    // ---- Find my Phone ----------------------------------------------------------------------
+
+    /** Folder name of the Find my Phone watch app under /Apps (its app ID). */
+    var findFolder: String
+        get() = sp.getString("findFolder", FindRule.DEFAULT_FOLDER) ?: FindRule.DEFAULT_FOLDER
+        set(v) = sp.edit().putString("findFolder", v.trim()).apply()
+
+    /** How often the watch is checked, in seconds; 0 = off. */
+    var findIntervalSec: Int
+        get() = sp.getInt("findIntervalSec", 0)
+        set(v) = sp.edit().putInt("findIntervalSec", v).apply()
+
+    /** Ring even in Do Not Disturb (needs the Do Not Disturb access to be granted to this app). */
+    var findDnd: Boolean
+        get() = sp.getBoolean("findDnd", true)
+        set(v) = sp.edit().putBoolean("findDnd", v).apply()
+
+    /** Time stamp of the last request that was acted on, so one request never rings twice. */
+    var findHandledTs: Long
+        get() = sp.getLong("findHandledTs", 0L)
+        set(v) = sp.edit().putLong("findHandledTs", v).apply()
+
+    var findStatus: String
+        get() = sp.getString("findStatus", "not checked yet") ?: ""
+        set(v) = sp.edit().putString("findStatus", v).apply()
+
+    var findStatusTime: Long
+        get() = sp.getLong("findStatusTime", 0L)
+        set(v) = sp.edit().putLong("findStatusTime", v).apply()
+
+    fun saveFindStatus(text: String) {
+        findStatus = text
+        findStatusTime = System.currentTimeMillis()
+    }
+
+    fun registerListener(l: android.content.SharedPreferences.OnSharedPreferenceChangeListener) =
+        sp.registerOnSharedPreferenceChangeListener(l)
+
+    fun unregisterListener(l: android.content.SharedPreferences.OnSharedPreferenceChangeListener) =
+        sp.unregisterOnSharedPreferenceChangeListener(l)
 }

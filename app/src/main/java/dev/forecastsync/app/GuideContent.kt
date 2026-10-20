@@ -59,12 +59,23 @@ object GuideContent {
         Row("What it writes", "Only /Apps/<Agenda app ID>/calendar.json."),
     )
 
+    private val find = listOf(
+        Row("What it does", "The Find tab makes the phone ring when the Find my Phone watch app asks for it. The watch cannot call the phone itself: it leaves a small file (ring.txt, with the time) in its folder, and this app looks for it over Bluetooth."),
+        Row("Check interval", "Off, 30 seconds, or 1, 2, 3, 4, 5 or 10 minutes. While it is on, a small silent notification stays visible. Each check opens a short Bluetooth connection, so short intervals cost battery on both devices. With the phone lying still and the screen off, Android may stretch the interval."),
+        Row("When it rings", "If the request is at most 10 minutes plus one interval old: 30 seconds on the alarm volume, with vibration. An older request only produces a notification. The file is deleted afterwards."),
+        Row("Cancel", "On the watch (the request file is removed; the phone notices within about 3 seconds), with Stop in the notification, or the Stop alarm button."),
+        Row("Do Not Disturb", "The alarm uses the alarm volume. With Do Not Disturb access allowed for this app, the filter is lifted for the 30 seconds and restored after. Without it the alarm still rings unless Do Not Disturb is set to total silence."),
+        Row("Out of range", "The request stays on the watch until the phone is back in Bluetooth range and checks again; it rings then if it is not too old."),
+        Row("What it touches", "Lists the Find my Phone app folder on the watch and reads and deletes the single file /Apps/<app ID>/ring.txt - nothing else."),
+    )
+
     fun build(ctx: Context, into: LinearLayout) {
         into.removeAllViews()
         section(ctx, into, "Pages on the watch", pages)
         section(ctx, into, "Graph legend", graph)
         section(ctx, into, "Weather conditions", conditions)
         section(ctx, into, "Calendar (Agenda glance)", agenda)
+        section(ctx, into, "Find my Phone", find)
         section(ctx, into, "About", about)
     }
 

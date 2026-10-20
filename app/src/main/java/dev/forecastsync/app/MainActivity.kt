@@ -51,27 +51,32 @@ class MainActivity : AppCompatActivity() {
     private var devices: List<BluetoothDevice> = emptyList()
     private var syncJob: Job? = null
     private lateinit var calendarTab: CalendarTab
+    private lateinit var findTab: FindTab
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         prefs = Prefs(this)
 
-        // Two tabs: settings and a guide to what the watch shows.
+        // Tabs: weather settings, calendar, Find my Phone, and a guide to what the watch shows.
         val tabs = findViewById<TabLayout>(R.id.tabs)
         val settingsPage = findViewById<View>(R.id.settingsPage)
         val calendarPage = findViewById<View>(R.id.calendarPage)
+        val findPage = findViewById<View>(R.id.findPage)
         val guidePage = findViewById<View>(R.id.guidePage)
         calendarTab = CalendarTab(this, scope)
+        findTab = FindTab(this)
         GuideContent.build(this, findViewById<LinearLayout>(R.id.guideContent))
         tabs.addTab(tabs.newTab().setText("Weather"))
         tabs.addTab(tabs.newTab().setText("Calendar"))
+        tabs.addTab(tabs.newTab().setText("Find"))
         tabs.addTab(tabs.newTab().setText("Guide"))
         tabs.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
             override fun onTabSelected(tab: TabLayout.Tab) {
                 settingsPage.visibility = if (tab.position == 0) View.VISIBLE else View.GONE
                 calendarPage.visibility = if (tab.position == 1) View.VISIBLE else View.GONE
-                guidePage.visibility = if (tab.position == 2) View.VISIBLE else View.GONE
+                findPage.visibility = if (tab.position == 2) View.VISIBLE else View.GONE
+                guidePage.visibility = if (tab.position == 3) View.VISIBLE else View.GONE
             }
             override fun onTabUnselected(tab: TabLayout.Tab) {}
             override fun onTabReselected(tab: TabLayout.Tab) {}
@@ -129,8 +134,14 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         calendarTab.refresh()
+        findTab.onResume()
         refreshDevices()
         showStatus()
+    }
+
+    override fun onPause() {
+        findTab.onPause()
+        super.onPause()
     }
 
     override fun onDestroy() {
@@ -183,6 +194,7 @@ class MainActivity : AppCompatActivity() {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         refreshDevices()
         if (requestCode == CalendarTab.PERMISSION_REQUEST) calendarTab.refresh()
+        if (requestCode == FindTab.PERMISSION_REQUEST) findTab.refresh()
         if (requestCode == 1 && LocationHelper.hasPermission(this)) requestBackgroundLocation()
     }
 

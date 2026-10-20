@@ -34,12 +34,30 @@ Android's own calendar storage, so Google Calendar works without a separate sign
 **Update automatically**. The watch is the one chosen on the Weather tab. The calendar has its own schedule,
 independent of the weather.
 
+### Find my Phone
+
+The **Find** tab rings the phone when the **Find my Phone** watch app (default app ID `B8E0979895A97AFD`)
+asks for it. A watch app cannot send anything to the phone, so the phone looks: at the interval you choose (Off, 30 seconds, or 1, 2, 3, 4, 5 or 10 minutes) it opens a short Bluetooth
+connection, lists the watch app's folder and, if `ring.txt` is there, reads it.
+
+- A request is `ts=<UTC seconds>` and rings for **30 seconds** if it is at most 10 minutes plus one check interval old
+  (so a 10-minute interval cannot miss a request). Older ones only produce a notification. Afterwards the file is deleted.
+- **Cancel:** on the watch (it deletes the file; the phone checks every 3 seconds while ringing), with Stop in the
+  notification, or the Stop alarm button.
+- **Do Not Disturb:** the alarm plays on the alarm volume. Allow *Do Not Disturb access* for the app and the filter is
+  lifted for the 30 seconds and restored afterwards.
+- It runs as a foreground service with a silent notification while an interval is set, wakes the CPU only for a check
+  (an alarm clock entry; allow *exact timing* for punctual checks), and restarts after a reboot. Android may stretch the
+  interval while the phone lies still in Doze mode. Short intervals cost battery on the phone and on the watch.
+- If the phone is out of range, the request waits on the watch and rings once the phone is back and has looked.
+
 ## Things to know
 
 - Only **one Bluetooth client can write to the watch at a time.** If the official UNA app or another device is holding the
   connection, a run fails and is retried automatically (3 attempts per run, then the next interval).
 - The app writes **exactly one file per glance**: `/Apps/<16-hex app ID>/weather.json` and
-  `/Apps/<16-hex app ID>/calendar.json`. The path is checked in code; the firmware
+  `/Apps/<16-hex app ID>/calendar.json`. The Find tab additionally lists a watch app folder and reads and deletes
+  `/Apps/<16-hex app ID>/ring.txt`. All paths are checked in code; the firmware
   update directory is never touched. Bluetooth file transfer itself has no access control beyond pairing.
 - Android may delay scheduled runs in Doze/battery-saver mode, especially at 10 minutes. WorkManager's own minimum for
   periodic work is 15 minutes, so the app chains one-off jobs instead.

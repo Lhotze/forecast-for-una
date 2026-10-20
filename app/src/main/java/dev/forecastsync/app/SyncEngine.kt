@@ -15,8 +15,8 @@ object SyncEngine {
 
     private const val ATTEMPTS = 3
 
-    /** Only one Bluetooth client can talk to the watch at a time: the weather and the calendar take turns. */
-    private val bleLock = Mutex()
+    /** Only one Bluetooth client can talk to the watch at a time: the weather, the calendar and the Find my Phone check take turns. */
+    internal val bleLock = Mutex()
 
     private fun btPermission(ctx: Context) =
         Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||

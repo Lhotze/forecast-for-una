@@ -243,6 +243,8 @@
 
     <include layout="@layout/page_calendar" />
 
+    <include layout="@layout/page_find" />
+
     <ScrollView
         android:id="@+id/guidePage"
         android:layout_width="match_parent"

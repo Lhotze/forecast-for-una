@@ -1,5 +1,21 @@
 # Forecast Sync for UNA — Changelog
 
+## 0.5.0
+- New **Find** tab: makes the phone ring when the **Find my Phone** watch app (ID `B8E0979895A97AFD`) asks for it.
+  The watch app leaves `ring.txt` (`ts=<UTC seconds>`) in its folder; the phone looks for it over Bluetooth at a
+  chosen interval (Off, 30 seconds, or 1, 2, 3, 4, 5 or 10 minutes), rings for 30 seconds if the request is at most
+  10 minutes plus one interval old, and deletes the file. A cancel on the watch (the file is deleted) or the
+  Stop button in the notification ends the alarm; older requests only leave a notification.
+- Runs as a foreground service (silent notification) while an interval is set; the next check is an alarm clock
+  entry and a wake lock is only held during a check. Restarts after a reboot.
+- The alarm uses the alarm volume (raised to maximum for its length) and vibration, and lifts Do Not Disturb for
+  its length when Do Not Disturb access is allowed for the app.
+- The Bluetooth client can now also list a watch app folder and read / delete the one file `ring.txt` (nothing else);
+  writing is still limited to `weather.json` and `calendar.json`. All Bluetooth work shares one lock.
+- New permissions: foreground service (connected device), notifications, wake lock, vibrate, Do Not Disturb access,
+  exact alarms, boot completed.
+- Unit tests for the request rules and the file transfer message layouts.
+
 ## 0.4.0
 - New **Calendar** tab: sends your appointments to the **Agenda** glance (`calendar.json`).
   Calendars are chosen in the app and read from Android's own calendar storage (every calendar

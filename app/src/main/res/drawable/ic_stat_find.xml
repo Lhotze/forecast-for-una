@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- a phone with two sound waves -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M7,2h6a2,2 0 0 1 2,2v16a2,2 0 0 1 -2,2H7a2,2 0 0 1 -2,-2V4a2,2 0 0 1 2,-2zM7,5v12h6V5H7zM9,19v1h2v-1H9z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M17.2,8.2l1.1,-1.1a6,6 0 0 1 0,9.8l-1.1,-1.1a4.4,4.4 0 0 0 0,-7.6zM19.4,5.5l1.1,-1.1a9.6,9.6 0 0 1 0,15.2l-1.1,-1.1a8,8 0 0 0 0,-13z" />
+</vector>

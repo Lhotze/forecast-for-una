@@ -20,8 +20,11 @@ import java.util.zip.CRC32
 
 /**
  * Minimal client for the UNA Watch BLE File Transfer Service (service 0xFEBB),
- * see una-sdk/Docs/BLE-File-Transfer-Service.md. It can do exactly one thing:
- * write ONE file and verify it. No delete, no move, no directory writes.
+ * see una-sdk/Docs/BLE-File-Transfer-Service.md. It can do two things only:
+ *  - write ONE data file of a glance app and verify it ([writeFile]), and
+ *  - for the Find my Phone request: list one app folder, read the small `ring.txt` and delete that
+ *    one file ([withConnection] with [listDir], [readSmallFile], [deleteFile]).
+ * No move, no directory writes, no other file is ever read or deleted.
  */
 @SuppressLint("MissingPermission")
 class FtsClient(private val ctx: Context) {
@@ -32,16 +35,88 @@ class FtsClient(private val ctx: Context) {
         val FTS_RAW: UUID = UUID.fromString("ADAF0002-4669-6C65-5472-616E73666572")
         val CCCD: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
 
+        const val CMD_READ = 0x10
+        const val CMD_READ_DATA = 0x11
+        const val CMD_READ_PACING = 0x12
+        const val CMD_DELETE = 0x30
+        const val CMD_DELETE_STATUS = 0x31
+        const val CMD_LISTDIR = 0x50
+        const val CMD_LISTDIR_ENTRY = 0x51
         const val CMD_WRITE = 0x20
         const val CMD_WRITE_PACING = 0x21
         const val CMD_WRITE_DATA = 0x22
         const val CMD_DIGEST = 0x70
         const val CMD_DIGEST_STATUS = 0x71
         const val STATUS_OK = 0x01
+        const val STATUS_NO_FILE = 0x03
+        /** The request file is tiny ("ts=1760000000\n"); anything bigger is not ours. */
+        const val MAX_SMALL_FILE = 64
 
         /** Never write anywhere else than a watch app's own data file (the Forecast weather file or the Agenda calendar file). */
         fun isAllowedPath(path: String) =
             Regex("^/Apps/[0-9A-Fa-f]{16}/(weather|calendar)\\.json$").matches(path)
+
+        /** The only file that may be read or deleted: the Find my Phone request. */
+        fun isAllowedRingPath(path: String) =
+            Regex("^/Apps/[0-9A-Fa-f]{16}/ring\\.txt$").matches(path)
+
+        /** The only folder that may be listed: a watch app's own folder. */
+        fun isAllowedAppDir(path: String) =
+            Regex("^/Apps/[0-9A-Fa-f]{16}$").matches(path)
+    }
+
+    /** One entry of a directory listing. [mtimeNs] is the file's modification time, ns since 1970. */
+    class Entry(val name: String, val isDir: Boolean, val size: Int, val mtimeNs: Long)
+
+    /** Message layouts of the FTS commands used for the Find my Phone request (see BLE-File-Transfer-Service.md). */
+    object Wire {
+        private fun le(size: Int) = ByteBuffer.allocate(size).order(ByteOrder.LITTLE_ENDIAN)
+
+        /** `{cmd, reserved, pathLength}` + path: LISTDIR and DELETE. */
+        fun pathRequest(cmd: Int, path: String): ByteArray {
+            val p = path.toByteArray(Charsets.UTF_8)
+            return le(4 + p.size).put(cmd.toByte()).put(0).putShort(p.size.toShort()).put(p).array()
+        }
+
+        fun readRequest(path: String, size: Int): ByteArray {
+            val p = path.toByteArray(Charsets.UTF_8)
+            return le(12 + p.size).put(CMD_READ.toByte()).put(0).putShort(p.size.toShort())
+                .putInt(0).putInt(size).put(p).array()
+        }
+
+        fun readPacing(offset: Int, size: Int): ByteArray =
+            le(12).put(CMD_READ_PACING.toByte()).put(STATUS_OK.toByte()).putShort(0).putInt(offset).putInt(size).array()
+
+        class ListReply(val status: Int, val terminal: Boolean, val entry: Entry?)
+
+        /** One LISTDIR notification: an entry, or the terminating one (entryNumber == totalEntries, no name). */
+        fun parseListReply(m: ByteArray): ListReply {
+            if (m.size < 28) throw IOException("Short listing entry")
+            val bb = ByteBuffer.wrap(m).order(ByteOrder.LITTLE_ENDIAN)
+            val status = m[1].toInt() and 0xFF
+            val nameLen = bb.getShort(2).toInt() and 0xFFFF
+            val number = bb.getInt(4)
+            val total = bb.getInt(8)
+            if (status != STATUS_OK) return ListReply(status, false, null)
+            if (nameLen == 0 && number >= total) return ListReply(status, true, null)
+            if (m.size < 28 + nameLen) throw IOException("Short listing entry")
+            return ListReply(status, false, Entry(
+                name = String(m, 28, nameLen, Charsets.UTF_8),
+                isDir = (bb.getInt(12) and 1) != 0,
+                size = bb.getInt(24),
+                mtimeNs = bb.getLong(16),
+            ))
+        }
+
+        class ReadReply(val status: Int, val offset: Int, val total: Int, val data: ByteArray)
+
+        /** One READ_DATA notification; [data] holds only the bytes that really arrived. */
+        fun parseReadReply(m: ByteArray): ReadReply {
+            if (m.size < 16) throw IOException("Short read reply")
+            val bb = ByteBuffer.wrap(m).order(ByteOrder.LITTLE_ENDIAN)
+            val len = minOf(bb.getInt(12), m.size - 16).coerceAtLeast(0)
+            return ReadReply(m[1].toInt() and 0xFF, bb.getInt(4), bb.getInt(8), m.copyOfRange(16, 16 + len))
+        }
     }
 
     private var gatt: BluetoothGatt? = null
@@ -174,6 +249,63 @@ class FtsClient(private val ctx: Context) {
 
     private fun drain() {
         while (notifications.tryReceive().isSuccess) { /* discard stale notifications */ }
+    }
+
+    /** Connects, runs [block] on the open link and disconnects, whatever happens. */
+    suspend fun <T> withConnection(address: String, block: suspend FtsClient.() -> T): T {
+        try {
+            connect(address)
+            drain()
+            return block()
+        } finally {
+            close()
+        }
+    }
+
+    /** Lists the files in [dir] (LISTDIR). Needs [withConnection]. */
+    suspend fun listDir(dir: String): List<Entry> {
+        require(isAllowedAppDir(dir)) { "Folder not allowed: $dir" }
+        drain()
+        writeRaw(Wire.pathRequest(CMD_LISTDIR, dir))
+        val out = ArrayList<Entry>()
+        while (out.size < 256) {
+            val m = awaitReply(CMD_LISTDIR_ENTRY, "the folder listing of $dir (does the folder exist on the watch?)")
+            val r = Wire.parseListReply(m)
+            if (r.status != STATUS_OK) throw IOException("Watch cannot list $dir (status ${r.status})")
+            if (r.terminal) break
+            r.entry?.let { out += it }
+        }
+        return out
+    }
+
+    /** Reads a whole file of at most [MAX_SMALL_FILE] bytes whose exact [size] is known from [listDir]. Needs [withConnection]. */
+    suspend fun readSmallFile(path: String, size: Int): ByteArray {
+        require(isAllowedRingPath(path)) { "Path not allowed: $path" }
+        require(size in 1..MAX_SMALL_FILE) { "Unexpected file size $size" }
+        drain()
+        writeRaw(Wire.readRequest(path, size))
+        val data = ByteArray(size)
+        var have = 0
+        while (have < size) {
+            val r = Wire.parseReadReply(awaitReply(CMD_READ_DATA, "the read of $path"))
+            if (r.status == STATUS_NO_FILE) throw java.io.FileNotFoundException("File vanished")
+            if (r.status != STATUS_OK) throw IOException("Watch refuses the read (status ${r.status})")
+            if (r.offset < 0 || r.offset + r.data.size > size) throw IOException("Unexpected read data")
+            System.arraycopy(r.data, 0, data, r.offset, r.data.size)
+            have = maxOf(have, r.offset + r.data.size)
+            if (have < size) writeRaw(Wire.readPacing(have, size - have))
+        }
+        return data
+    }
+
+    /** Deletes [path] (DELETE). A file that is already gone counts as deleted. Needs [withConnection]. */
+    suspend fun deleteFile(path: String) {
+        require(isAllowedRingPath(path)) { "Path not allowed: $path" }
+        drain()
+        writeRaw(Wire.pathRequest(CMD_DELETE, path))
+        val r = awaitReply(CMD_DELETE_STATUS, "the delete of $path")
+        val status = r[1].toInt() and 0xFF
+        if (status != STATUS_OK && status != STATUS_NO_FILE) throw IOException("Watch refuses the delete (status $status)")
     }
 
     /**
